@@ -45,18 +45,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 // app.use(passport.initialize());
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'back/assets/images/trainings');
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-    const extension = file.originalname.split('.').pop();
-    cb(null, 'training_' + uniqueSuffix + '.' + extension);
-  }
-});
 
-const uploadImg = multer({storage: storage}).single('image');
 
 app.post("/login", (req, res) => {
   const { email, password } = req.body;
@@ -541,7 +530,18 @@ app.use("/trainings/:id", async (req, res) => {
   }
 });
 
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'back/assets/images/trainings');
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    const extension = file.originalname.split('.').pop();
+    cb(null, 'training_' + uniqueSuffix + '.' + extension);
+  }
+});
 
+const uploadImg = multer({storage: storage}).single('image');
 app.post('/trainings',uploadImg, async (req, res) => {
   const { user_id, company_id, title, about, price, redirect_link, deadline } = req.body;
   const imagePath = req.file.path;
