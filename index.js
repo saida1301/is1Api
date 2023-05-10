@@ -542,12 +542,12 @@ app.use("/trainings/:id", async (req, res) => {
 });
 
 
-app.post('/trainings', async (req, res) => {
+app.post('/trainings',uploadImg, async (req, res) => {
   const { user_id, company_id, title, about, price, redirect_link, deadline } = req.body;
   const imagePath = req.file.path;
   
   const query = `INSERT INTO trainings (user_id, company_id, title, about, price, redirect_link, image, deadline, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`;
-  const values = [user_id, company_id, title, about, price, redirect_link, imagePath, deadline];
+  const values = [user_id, company_id, title, about, price, redirect_link, req.file.path, deadline];
   console.log(imagePath);
   pool.query(query, values, (error, results) => {
     if (error) {
