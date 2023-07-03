@@ -1,104 +1,109 @@
-import { BlobServiceClient } from "@azure/storage-blob";
-import multer from "multer";
+import FTP from 'ftp';
+import express from 'express';
+import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
-import express from "express";
-import session from "express-session";
-import bodyParser from "body-parser";
-import mysql from "mysql";
-import jwt from "jsonwebtoken";
-import bcrypt from "bcrypt";
-import crypto from 'crypto';
-import cors from "cors";
-import nodemailer from "nodemailer";
-import schedule from 'node-schedule';
-import { body, validationResult, param  } from 'express-validator';
-import axios from 'axios';
 import fs from 'fs';
-import FTP from 'basic-ftp';
-import path from 'path';
-
 const app = express();
 
-const pool = mysql.createPool({
-  connectionLimit: 10,
-  host: "145.14.156.192",
-  user: "u983993164_1is",
-  password: "Buta2023@",
-  database: "u983993164_1is",
-  timeout: 100000,
-});
-
-pool.getConnection((err, connection) => {
-  if (err) {
-    console.error("Error connecting to database: " + err.stack);
-    return;
-  }
-  console.log("Connected to database with ID " + connection.threadId);
-  connection.release();
-});
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const directory = 'https://srv926-files.hstgr.io/de5d894127c0801d/files/public_html/1is/public/back/assets/images/cv_photo/';
-    cb(null, directory);
-  },
-  filename: (req, file, cb) => {
-    const name = 'cv_' + uuidv4().substring(0, 6) + path.extname(file.originalname);
-    cb(null, name);
-  }
-});
-
+// Configure multer for file upload
+const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
-// Upload file to FTP
-async function uploadFileToFtp(fileBuffer, remotePath) {
-  const client = new FTP.Client();
-  client.ftp.verbose = true;
+// FTP'ye dosya yükleme
+async function uploadFileToFtp(fileContents, remotePath) {
+  return new Promise((resolve, reject) => {
+    const client = new FTP();
 
-  try {
-    await client.access({
-      host: '145.14.156.206', // FTP server address
-      user: 'u983993164', // FTP username
-      password: 'Pa$$w0rd!', // FTP password
-      secure: false, // Set to false if not using FTPS
+    client.on('ready', () => {
+      console.log('FTP bağlantısı başarılı. Dosya yükleniyor...');
+
+      client.put(fileContents, remotePath, (error) => {
+        client.end(); // Close the FTP connection
+
+        if (error) {
+          console.error('Dosya yükleme hatası:', error);
+          reject(error);
+        } else {
+          console.log('Dosya başarıyla yüklendi!');
+          resolve();
+        }
+      });
     });
 
-    // Create the directory if it doesn't exist
-    const directoryPath = path.dirname(remotePath);
-    await client.ensureDir(directoryPath);
+    client.on('error', (error) => {
+      console.error('FTP bağlantı hatası:', error);
+      reject(error);
+    });
 
-    await client.uploadFrom(localFilePath, remotePath);
-
-    console.log('File uploaded successfully!');
-  } catch (error) {
-    console.error('File upload error:', error);
-    throw error; // Rethrow the error to handle it in the calling function
-  } finally {
-    client.close();
-  }
+    client.connect({
+      host: '145.14.156.206', // FTP sunucu adresi
+      user: 'u983993164', // FTP kullanıcı adı
+      password: 'Pa$$w0rd!', // FTP şifre
+      port: 21, // FTP portu
+    });
+  });
 }
 
-app.post('/upload', upload.single('image'), async (req, res) => {
+// Hosting sunucusuna dosya kaydetme
+// Hosting sunucusuna dosya kaydetme
+async function saveFileToHosting(fileContents, fileName) {
+  return new Promise((resolve, reject) => {
+    const localPath = `back/assets/images/cv_photo/${fileName}`; // Kaydedilecek yerel dosya yolunu belirtin
+
+    fs.writeFile(localPath, fileContents, (error) => {
+      if (error) {
+        console.error('Dosya kaydetme hatası:', error);
+        reject(error);
+      } else {
+        console.log('Dosya hosting sunucusuna kaydedildi!');
+        const remotePath = `public_html/1is/public/back/assets/images/cv_photo/${fileName}`; // Yüklenecek dosyanın uzak FTP yolu
+        uploadFileToFtp(fileContents, remotePath)
+          .then(() => {
+            console.log('Dosya FTP sunucusuna yüklendi!');
+            resolve();
+          })
+          .catch((error) => {
+            console.error('FTP dosya yükleme hatası:', error);
+            reject(error);
+          });
+      }
+    });
+  });
+}
+
+
+
+app.post('/upload', upload.single('file'), async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'File could not be uploaded' });
-    }
+    const fileContents = req.file.buffer; // Multer'dan dosya içeriğini alın
+    const extension = '.png'; // Gerçek dosya uzantısıyla değiştirin
 
-    const fileBuffer = req.file.buffer;
-    const remoteFileName = 'cv_' + uuidv4().substring(0, 6) + path.extname(req.file.originalname);
-    const remotePath = 'back/assets/images/cv_photo/' + remoteFileName;
+    const fileName = `cv_${uuidv4().substring(0, 6)}${extension}`; // Rastgele bir dosya adı oluşturun
+    const remotePath = `back/assets/images/cv_photo/${fileName}`; // Yüklenecek dosyanın uzak FTP yolu
 
-    await uploadFileToFtp(fileBuffer, remotePath);
+    console.log('Dosya yüklemesi başlıyor...');
+    await uploadFileToFtp(fileContents, remotePath);
+    console.log('Dosya yükleme tamamlandı!');
 
-    const fileUrl = `https://1is.butagrup.az/${remotePath}`; // URL of the uploaded file
-    console.log(fileUrl)
-    return res.status(200).json({ message: 'File uploaded successfully', fileUrl });
+    const localPath = `back/assets/images/cv_photo/${fileName}`; // Kaydedilecek yerel dosya yolunu belirtin
+
+    fs.writeFile(localPath, fileContents, (error) => {
+      if (error) {
+        console.error('Dosya kaydetme hatası:', error);
+        res.status(500).json({ error: 'Dosya kaydetme başarısız' });
+      } else {
+        console.log('Dosya hosting sunucusuna kaydedildi!');
+        const fileUrl = `https://srv926-files.hstgr.io/a3dc356988a95d11/files/public_html/1is/public/${fileName}`; // Yüklenen dosyanın URL'i
+        res.status(200).json({ message: 'Dosya başarıyla yüklendi', fileUrl });
+      }
+    });
   } catch (error) {
-    console.error('File upload error:', error);
-    return res.status(500).json({ error: 'File upload failed' });
+    console.error('Dosya yükleme hatası:', error);
+    res.status(500).json({ error: 'Dosya yükleme başarısız' });
   }
 });
 
+
 app.listen(8000, () => {
-  console.log(`Server is running on port 8000`);
+  console.log('Server port 8000 üzerinde çalışıyor');
 });
